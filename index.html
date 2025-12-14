@@ -5,56 +5,40 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>拍照計數工具</title>
 
-  <!-- TensorFlow.js -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
-  <!-- COCO-SSD -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 
   <style>
     body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-        sans-serif;
+      font-family: system-ui, sans-serif;
       background: #0f172a;
       color: #e5e7eb;
-      margin: 0;
-      padding: 16px;
       text-align: center;
+      padding: 16px;
+      margin: 0;
     }
 
-    h2 {
-      margin-bottom: 12px;
-    }
+    h2 { margin-bottom: 10px; }
 
     .btn {
-      margin: 6px;
       padding: 12px 16px;
+      margin: 6px;
       font-size: 16px;
+      font-weight: bold;
       border-radius: 10px;
       border: none;
-      font-weight: bold;
       cursor: pointer;
     }
 
-    .btn-gallery {
-      background: #38bdf8;
-      color: #042f2e;
-    }
+    .gallery { background: #38bdf8; color: #042f2e; }
+    .camera  { background: #facc15; color: #422006; }
+    .count   { background: #22c55e; color: #052e16; }
 
-    .btn-camera {
-      background: #facc15;
-      color: #422006;
-    }
-
-    .btn-count {
-      background: #22c55e;
-      color: #052e16;
-      margin-top: 10px;
-    }
-
-    .btn:disabled {
-      background: #475569;
-      color: #cbd5f5;
-      cursor: not-allowed;
+    .adjust {
+      background: #334155;
+      color: #e5e7eb;
+      font-size: 22px;
+      width: 56px;
     }
 
     canvas {
@@ -64,75 +48,62 @@
       background: #020617;
     }
 
-    #result {
-      margin-top: 10px;
-      font-size: 16px;
-    }
+    #result { margin-top: 10px; font-size: 16px; }
+    #manual { margin-top: 10px; }
+
   </style>
 </head>
 
 <body>
 
-  <h2>📸 拍照計數工具</h2>
+<h2>📸 拍照計數工具</h2>
 
-  <!-- 自訂操作按鈕 -->
-  <div>
-    <button class="btn btn-gallery" id="btnGallery">🖼 選擇相簿照片</button>
-    <button class="btn btn-camera" id="btnCamera">📸 使用相機拍照</button>
-  </div>
+<div>
+  <button class="btn gallery" id="btnGallery">🖼 相簿</button>
+  <button class="btn camera" id="btnCamera">📸 相機</button>
+</div>
 
-  <div>
-    <button class="btn btn-count" id="countBtn" disabled>▶ 開始計數</button>
-  </div>
+<div>
+  <button class="btn count" id="countBtn" disabled>▶ 開始計數</button>
+</div>
 
-  <div id="result">⏳ 初始化中…</div>
+<div id="result">⏳ 初始化中…</div>
 
-  <canvas id="canvas"></canvas>
+<div id="manual" style="display:none;">
+  <button class="btn adjust" id="minusBtn">➖</button>
+  <span id="manualCount" style="font-size:18px;margin:0 10px;">0</span>
+  <button class="btn adjust" id="plusBtn">➕</button>
+</div>
 
-  <!-- 真正的 file input（隱藏） -->
-  <input type="file" accept="image/*" id="fileInput" hidden>
-  <input type="file" accept="image/*" capture="environment" id="cameraInput" hidden>
+<canvas id="canvas"></canvas>
+
+<input type="file" accept="image/*" hidden id="fileInput">
+<input type="file" accept="image/*" capture="environment" hidden id="cameraInput">
 
 <script>
-const btnGallery = document.getElementById("btnGallery");
-const btnCamera  = document.getElementById("btnCamera");
-const countBtn   = document.getElementById("countBtn");
-const fileInput  = document.getElementById("fileInput");
-const cameraInput= document.getElementById("cameraInput");
-const result     = document.getElementById("result");
-const canvas     = document.getElementById("canvas");
-const ctx        = canvas.getContext("2d");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const result = document.getElementById("result");
+const countBtn = document.getElementById("countBtn");
+const manualDiv = document.getElementById("manual");
+const manualCountText = document.getElementById("manualCount");
 
 let img = new Image();
-let model = null;
+let model;
+let aiCount = 0;
+let manualCount = 0;
 
-/* ===== 初始化 AI（關鍵）===== */
+/* 初始化 AI */
 async function initAI() {
-  try {
-    result.textContent = "⏳ 初始化 TensorFlow…";
-    await tf.ready();
-
-    await tf.setBackend("webgl");
-    console.log("backend:", tf.getBackend());
-
-    result.textContent = "⏳ 載入 AI 模型…";
-    model = await cocoSsd.load();
-
-    result.textContent = "✅ 模型已就緒，請選擇照片";
-    countBtn.disabled = false;
-  } catch (e) {
-    console.error(e);
-    alert("❌ AI 初始化失敗，請重新整理頁面");
-  }
+  await tf.ready();
+  await tf.setBackend("webgl");
+  model = await cocoSsd.load();
+  result.textContent = "✅ 模型就緒，請選擇照片";
+  countBtn.disabled = false;
 }
+window.onload = initAI;
 
-window.addEventListener("load", initAI);
-
-/* ===== 自訂按鈕行為 ===== */
-btnGallery.onclick = () => fileInput.click();
-btnCamera.onclick  = () => cameraInput.click();
-
-/* ===== 載入圖片 ===== */
+/* 圖片載入 */
 function loadImage(file) {
   const reader = new FileReader();
   reader.onload = () => {
@@ -140,49 +111,61 @@ function loadImage(file) {
       canvas.width = img.width;
       canvas.height = img.height;
       ctx.drawImage(img, 0, 0);
-      result.textContent = "📷 圖片已載入，可開始計數";
+      result.textContent = "📷 圖片已載入";
+      manualDiv.style.display = "none";
     };
     img.src = reader.result;
   };
   reader.readAsDataURL(file);
 }
 
-fileInput.onchange = e => e.target.files[0] && loadImage(e.target.files[0]);
-cameraInput.onchange = e => e.target.files[0] && loadImage(e.target.files[0]);
+fileInput.onchange = e => loadImage(e.target.files[0]);
+cameraInput.onchange = e => loadImage(e.target.files[0]);
 
-/* ===== 開始計數 ===== */
+btnGallery.onclick = () => fileInput.click();
+btnCamera.onclick = () => cameraInput.click();
+
+/* 開始計數 */
 countBtn.onclick = async () => {
-  if (!model) {
-    alert("AI 尚未就緒");
-    return;
-  }
-
-  if (!img.complete) {
-    alert("尚未載入圖片");
-    return;
-  }
-
-  result.textContent = "🔍 分析中…請稍候";
   ctx.drawImage(img, 0, 0);
+  result.textContent = "🔍 分析中…";
 
-  try {
-    const predictions = await model.detect(img);
+  const predictions = await model.detect(img);
+  aiCount = predictions.length;
+  manualCount = aiCount;
+  manualCountText.textContent = manualCount;
+  manualDiv.style.display = "block";
 
-    let count = 0;
-    predictions.forEach(p => {
-      const [x, y, w, h] = p.bbox;
-      ctx.strokeStyle = "#22c55e";
-      ctx.lineWidth = 3;
-      ctx.strokeRect(x, y, w, h);
-      count++;
-    });
+  predictions.forEach((p, i) => {
+    const [x, y, w, h] = p.bbox;
 
-    result.textContent = `🎯 偵測到 ${count} 個物件`;
-  } catch (e) {
-    console.error(e);
-    alert("辨識過程發生錯誤");
-  }
+    ctx.strokeStyle = "#22c55e";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x, y, w, h);
+
+    ctx.fillStyle = "#22c55e";
+    ctx.font = "bold 28px sans-serif";
+    ctx.fillText(`#${i + 1}`, x + 4, y + 28);
+  });
+
+  updateResult();
 };
+
+/* 手動修正 */
+plusBtn.onclick = () => {
+  manualCount++;
+  updateResult();
+};
+
+minusBtn.onclick = () => {
+  if (manualCount > 0) manualCount--;
+  updateResult();
+};
+
+function updateResult() {
+  manualCountText.textContent = manualCount;
+  result.textContent = `🤖 AI 偵測：${aiCount} ｜ ✍️ 修正後：${manualCount}`;
+}
 </script>
 
 </body>
