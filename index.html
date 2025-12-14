@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>通用拍照計數工具</title>
+<title>AI + 手動補點計數</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
@@ -18,21 +18,21 @@ body {
   text-align: center;
 }
 
-h2 { margin-bottom: 12px; }
+h2 { margin-bottom: 10px; }
 
 button {
-  padding: 12px 18px;
+  padding: 12px 16px;
   margin: 6px;
   font-size: 16px;
-  font-weight: bold;
   border-radius: 12px;
   border: none;
+  font-weight: bold;
 }
 
 .gallery { background:#38bdf8; }
 .camera  { background:#facc15; }
-.count   { background:#22c55e; }
-.adjust  { background:#334155; color:#fff; font-size:22px; width:56px; }
+.ai      { background:#22c55e; }
+.clear   { background:#ef4444; }
 
 canvas {
   max-width: 100%;
@@ -41,14 +41,16 @@ canvas {
   background:#000;
 }
 
-#result { margin-top: 10px; font-size:18px; }
-#manual { margin-top: 10px; display:none; }
+#result {
+  margin-top: 10px;
+  font-size: 18px;
+}
 </style>
 </head>
 
 <body>
 
-<h2>📸 通用拍照計數</h2>
+<h2>📦 AI + 手動補點計數</h2>
 
 <div>
   <button class="gallery" id="btnGallery">🖼 相簿</button>
@@ -56,16 +58,11 @@ canvas {
 </div>
 
 <div>
-  <button class="count" id="countBtn" disabled>▶ 開始計數</button>
+  <button class="ai" id="aiBtn" disabled>🤖 AI 初步偵測</button>
+  <button class="clear" id="clearBtn">🧹 清除標記</button>
 </div>
 
-<div id="result">⏳ 載入 AI 模型中…</div>
-
-<div id="manual">
-  <button class="adjust" id="minusBtn">➖</button>
-  <span id="manualCount" style="font-size:20px;margin:0 14px;">0</span>
-  <button class="adjust" id="plusBtn">➕</button>
-</div>
+<div id="result">⏳ 載入模型中…</div>
 
 <canvas id="canvas"></canvas>
 
@@ -76,20 +73,18 @@ canvas {
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 const result = document.getElementById("result");
-const manualDiv = document.getElementById("manual");
-const manualCountText = document.getElementById("manualCount");
 
 let img = new Image();
 let model;
-let detections = [];
+let points = [];   // 🔴 所有計數點（AI + 人）
 
 /* 初始化 */
 async function init() {
   await tf.ready();
   await tf.setBackend("webgl");
   model = await cocoSsd.load();
-  result.textContent = "✅ 模型就緒，請選擇照片";
-  countBtn.disabled = false;
+  result.textContent = "✅ 模型就緒，請載入照片";
+  aiBtn.disabled = false;
 }
 window.onload = init;
 
@@ -100,9 +95,8 @@ function loadImage(file) {
     img.onload = () => {
       canvas.width = img.width;
       canvas.height = img.height;
-      ctx.drawImage(img,0,0);
-      detections = [];
-      manualDiv.style.display = "none";
+      points = [];
+      redraw();
     };
     img.src = reader.result;
   };
@@ -114,64 +108,70 @@ btnCamera.onclick = ()=>cameraInput.click();
 fileInput.onchange = e => loadImage(e.target.files[0]);
 cameraInput.onchange = e => loadImage(e.target.files[0]);
 
-/* 開始計數（不看 class） */
-countBtn.onclick = async () => {
-  ctx.drawImage(img,0,0);
-
+/* AI 初步偵測（只取中心點） */
+aiBtn.onclick = async () => {
   const preds = await model.detect(img);
 
-  // ⭐ 核心：只用「大小」判斷是不是一個東西
-  detections = preds.filter(p => {
-    const [, , w, h] = p.bbox;
-    return w > 40 && h > 40;   // ← 通用門檻，可依情境調整
+  preds.forEach(p => {
+    const [x,y,w,h] = p.bbox;
+
+    // ⭐ 只留下「像箱子大小」的區塊
+    if (w > 60 && h > 60) {
+      points.push({
+        x: x + w/2,
+        y: y + h/2,
+        source: "AI"
+      });
+    }
   });
 
   redraw();
-  manualDiv.style.display = "block";
+};
+
+/* 手動補點 / 點擊刪除 */
+canvas.addEventListener("click", e => {
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.clientX - rect.left) * canvas.width / rect.width;
+  const y = (e.clientY - rect.top) * canvas.height / rect.height;
+
+  // 如果點到既有點 → 刪除
+  const idx = points.findIndex(p =>
+    Math.hypot(p.x - x, p.y - y) < 18
+  );
+
+  if (idx >= 0) {
+    points.splice(idx,1);
+  } else {
+    // 否則新增一點
+    points.push({ x, y, source:"MANUAL" });
+  }
+
+  redraw();
+});
+
+/* 清除 */
+clearBtn.onclick = ()=>{
+  points = [];
+  redraw();
 };
 
 /* 重繪 */
 function redraw() {
   ctx.drawImage(img,0,0);
 
-  detections.forEach((p,i)=>{
-    const [x,y,w,h] = p.bbox;
+  points.forEach((p,i)=>{
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 10, 0, Math.PI*2);
+    ctx.fillStyle = p.source==="AI" ? "#22c55e" : "#f97316";
+    ctx.fill();
 
-    ctx.strokeStyle="#22c55e";
-    ctx.lineWidth=3;
-    ctx.strokeRect(x,y,w,h);
-
-    ctx.fillStyle="#22c55e";
-    ctx.font="bold 26px sans-serif";
-    ctx.fillText(i+1, x+6, y+28);
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 14px sans-serif";
+    ctx.fillText(i+1, p.x+12, p.y+4);
   });
 
-  result.textContent = `🔢 目前數量：${detections.length}`;
-  manualCountText.textContent = detections.length;
+  result.textContent = `🔢 目前箱子數量：${points.length}`;
 }
-
-/* 點擊刪除物件 */
-canvas.addEventListener("click", e => {
-  const rect = canvas.getBoundingClientRect();
-  const x = (e.clientX - rect.left) * canvas.width / rect.width;
-  const y = (e.clientY - rect.top) * canvas.height / rect.height;
-
-  detections = detections.filter(p=>{
-    const [bx,by,bw,bh] = p.bbox;
-    return !(x>bx && x<bx+bw && y>by && y<by+bh);
-  });
-
-  redraw();
-});
-
-/* 手動修正 */
-plusBtn.onclick = ()=>{
-  manualCountText.textContent = Number(manualCountText.textContent) + 1;
-};
-minusBtn.onclick = ()=>{
-  let v = Number(manualCountText.textContent);
-  if(v>0) manualCountText.textContent = v - 1;
-};
 </script>
 
 </body>
