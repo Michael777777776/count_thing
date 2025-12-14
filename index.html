@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>拍照計數工具</title>
+<title>通用拍照計數工具</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
@@ -12,21 +12,21 @@
 body {
   margin: 0;
   padding: 16px;
-  background: #0f172a;
+  background: #020617;
   color: #e5e7eb;
   font-family: system-ui, sans-serif;
   text-align: center;
 }
 
-h2 { margin-bottom: 10px; }
+h2 { margin-bottom: 12px; }
 
-button, select {
-  padding: 12px 16px;
+button {
+  padding: 12px 18px;
   margin: 6px;
   font-size: 16px;
-  border-radius: 10px;
-  border: none;
   font-weight: bold;
+  border-radius: 12px;
+  border: none;
 }
 
 .gallery { background:#38bdf8; }
@@ -37,19 +37,18 @@ button, select {
 canvas {
   max-width: 100%;
   margin-top: 14px;
-  border-radius: 12px;
-  background:#020617;
+  border-radius: 14px;
+  background:#000;
 }
 
+#result { margin-top: 10px; font-size:18px; }
 #manual { margin-top: 10px; display:none; }
-#result { margin-top: 10px; }
-
 </style>
 </head>
 
 <body>
 
-<h2>📸 拍照計數工具</h2>
+<h2>📸 通用拍照計數</h2>
 
 <div>
   <button class="gallery" id="btnGallery">🖼 相簿</button>
@@ -57,23 +56,14 @@ canvas {
 </div>
 
 <div>
-  <select id="classFilter">
-    <option value="all">🔎 所有物件</option>
-    <option value="person">👤 人</option>
-    <option value="chair">🪑 椅子</option>
-    <option value="bottle">🧴 瓶子</option>
-  </select>
-</div>
-
-<div>
   <button class="count" id="countBtn" disabled>▶ 開始計數</button>
 </div>
 
-<div id="result">⏳ 初始化中…</div>
+<div id="result">⏳ 載入 AI 模型中…</div>
 
 <div id="manual">
   <button class="adjust" id="minusBtn">➖</button>
-  <span id="manualCount" style="font-size:18px;margin:0 10px;">0</span>
+  <span id="manualCount" style="font-size:20px;margin:0 14px;">0</span>
   <button class="adjust" id="plusBtn">➕</button>
 </div>
 
@@ -92,9 +82,8 @@ const manualCountText = document.getElementById("manualCount");
 let img = new Image();
 let model;
 let detections = [];
-let manualCount = 0;
 
-/* 初始化 AI */
+/* 初始化 */
 async function init() {
   await tf.ready();
   await tf.setBackend("webgl");
@@ -125,23 +114,23 @@ btnCamera.onclick = ()=>cameraInput.click();
 fileInput.onchange = e => loadImage(e.target.files[0]);
 cameraInput.onchange = e => loadImage(e.target.files[0]);
 
-/* 開始計數 */
+/* 開始計數（不看 class） */
 countBtn.onclick = async () => {
   ctx.drawImage(img,0,0);
-  const selected = classFilter.value;
 
   const preds = await model.detect(img);
-  detections = preds.filter(p =>
-    selected === "all" || p.class === selected
-  );
 
-  manualCount = detections.length;
-  manualCountText.textContent = manualCount;
-  manualDiv.style.display = "block";
+  // ⭐ 核心：只用「大小」判斷是不是一個東西
+  detections = preds.filter(p => {
+    const [, , w, h] = p.bbox;
+    return w > 40 && h > 40;   // ← 通用門檻，可依情境調整
+  });
+
   redraw();
+  manualDiv.style.display = "block";
 };
 
-/* 重繪畫面 */
+/* 重繪 */
 function redraw() {
   ctx.drawImage(img,0,0);
 
@@ -154,14 +143,14 @@ function redraw() {
 
     ctx.fillStyle="#22c55e";
     ctx.font="bold 26px sans-serif";
-    ctx.fillText(`#${i+1}`, x+4, y+26);
+    ctx.fillText(i+1, x+6, y+28);
   });
 
-  result.textContent = `🤖 偵測物件：${detections.length}`;
+  result.textContent = `🔢 目前數量：${detections.length}`;
   manualCountText.textContent = detections.length;
 }
 
-/* 點擊刪除框框 */
+/* 點擊刪除物件 */
 canvas.addEventListener("click", e => {
   const rect = canvas.getBoundingClientRect();
   const x = (e.clientX - rect.left) * canvas.width / rect.width;
@@ -175,15 +164,13 @@ canvas.addEventListener("click", e => {
   redraw();
 });
 
-/* 手動微調 */
+/* 手動修正 */
 plusBtn.onclick = ()=>{
-  manualCount++;
-  manualCountText.textContent = manualCount;
+  manualCountText.textContent = Number(manualCountText.textContent) + 1;
 };
-
 minusBtn.onclick = ()=>{
-  if(manualCount>0) manualCount--;
-  manualCountText.textContent = manualCount;
+  let v = Number(manualCountText.textContent);
+  if(v>0) manualCountText.textContent = v - 1;
 };
 </script>
 
