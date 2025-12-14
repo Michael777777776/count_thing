@@ -3,54 +3,47 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI + 手動補點計數</title>
+<title>AI + 手動補框計數</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 
 <style>
-body {
-  margin: 0;
-  padding: 16px;
-  background: #020617;
-  color: #e5e7eb;
-  font-family: system-ui, sans-serif;
-  text-align: center;
+body{
+  margin:0;
+  padding:16px;
+  background:#020617;
+  color:#e5e7eb;
+  font-family:system-ui,sans-serif;
+  text-align:center;
 }
-
-h2 { margin-bottom: 10px; }
-
-button {
-  padding: 12px 16px;
-  margin: 6px;
-  font-size: 16px;
-  border-radius: 12px;
-  border: none;
-  font-weight: bold;
+button{
+  padding:12px 16px;
+  margin:6px;
+  font-size:16px;
+  font-weight:bold;
+  border-radius:12px;
+  border:none;
 }
+.gallery{background:#38bdf8;}
+.camera{background:#facc15;}
+.ai{background:#22c55e;}
+.clear{background:#ef4444;}
 
-.gallery { background:#38bdf8; }
-.camera  { background:#facc15; }
-.ai      { background:#22c55e; }
-.clear   { background:#ef4444; }
-
-canvas {
-  max-width: 100%;
-  margin-top: 14px;
-  border-radius: 14px;
+canvas{
+  max-width:100%;
+  margin-top:14px;
+  border-radius:14px;
   background:#000;
+  touch-action:none;
 }
-
-#result {
-  margin-top: 10px;
-  font-size: 18px;
-}
+#result{margin-top:10px;font-size:18px;}
 </style>
 </head>
 
 <body>
 
-<h2>📦 AI + 手動補點計數</h2>
+<h2>📦 AI 偵測 + 手動補框</h2>
 
 <div>
   <button class="gallery" id="btnGallery">🖼 相簿</button>
@@ -58,8 +51,8 @@ canvas {
 </div>
 
 <div>
-  <button class="ai" id="aiBtn" disabled>🤖 AI 初步偵測</button>
-  <button class="clear" id="clearBtn">🧹 清除標記</button>
+  <button class="ai" id="aiBtn" disabled>🤖 AI 偵測</button>
+  <button class="clear" id="clearBtn">🧹 清除框</button>
 </div>
 
 <div id="result">⏳ 載入模型中…</div>
@@ -76,10 +69,12 @@ const result = document.getElementById("result");
 
 let img = new Image();
 let model;
-let points = [];   // 🔴 所有計數點（AI + 人）
+let boxes = []; // 所有框
+let drawing = false;
+let startX, startY;
 
 /* 初始化 */
-async function init() {
+async function init(){
   await tf.ready();
   await tf.setBackend("webgl");
   model = await cocoSsd.load();
@@ -89,13 +84,13 @@ async function init() {
 window.onload = init;
 
 /* 載入圖片 */
-function loadImage(file) {
+function loadImage(file){
   const reader = new FileReader();
-  reader.onload = () => {
-    img.onload = () => {
+  reader.onload = ()=>{
+    img.onload = ()=>{
       canvas.width = img.width;
       canvas.height = img.height;
-      points = [];
+      boxes = [];
       redraw();
     };
     img.src = reader.result;
@@ -105,72 +100,80 @@ function loadImage(file) {
 
 btnGallery.onclick = ()=>fileInput.click();
 btnCamera.onclick = ()=>cameraInput.click();
-fileInput.onchange = e => loadImage(e.target.files[0]);
-cameraInput.onchange = e => loadImage(e.target.files[0]);
+fileInput.onchange = e=>loadImage(e.target.files[0]);
+cameraInput.onchange = e=>loadImage(e.target.files[0]);
 
-/* AI 初步偵測（只取中心點） */
-aiBtn.onclick = async () => {
+/* AI 偵測（產生初始框） */
+aiBtn.onclick = async ()=>{
   const preds = await model.detect(img);
 
-  preds.forEach(p => {
+  preds.forEach(p=>{
     const [x,y,w,h] = p.bbox;
-
-    // ⭐ 只留下「像箱子大小」的區塊
-    if (w > 60 && h > 60) {
-      points.push({
-        x: x + w/2,
-        y: y + h/2,
-        source: "AI"
-      });
+    if(w>60 && h>60){
+      boxes.push({x,y,w,h});
     }
   });
-
   redraw();
 };
 
-/* 手動補點 / 點擊刪除 */
-canvas.addEventListener("click", e => {
-  const rect = canvas.getBoundingClientRect();
-  const x = (e.clientX - rect.left) * canvas.width / rect.width;
-  const y = (e.clientY - rect.top) * canvas.height / rect.height;
+/* 手動畫框（補箱子） */
+canvas.addEventListener("pointerdown",e=>{
+  const r=canvas.getBoundingClientRect();
+  startX=(e.clientX-r.left)*canvas.width/r.width;
+  startY=(e.clientY-r.top)*canvas.height/r.height;
+  drawing=true;
+});
 
-  // 如果點到既有點 → 刪除
-  const idx = points.findIndex(p =>
-    Math.hypot(p.x - x, p.y - y) < 18
-  );
+canvas.addEventListener("pointerup",e=>{
+  if(!drawing) return;
+  const r=canvas.getBoundingClientRect();
+  const endX=(e.clientX-r.left)*canvas.width/r.width;
+  const endY=(e.clientY-r.top)*canvas.height/r.height;
+  const w=Math.abs(endX-startX);
+  const h=Math.abs(endY-startY);
 
-  if (idx >= 0) {
-    points.splice(idx,1);
-  } else {
-    // 否則新增一點
-    points.push({ x, y, source:"MANUAL" });
+  if(w>30 && h>30){
+    boxes.push({
+      x:Math.min(startX,endX),
+      y:Math.min(startY,endY),
+      w,h
+    });
   }
+  drawing=false;
+  redraw();
+});
 
+/* 點擊刪除框 */
+canvas.addEventListener("click",e=>{
+  const r=canvas.getBoundingClientRect();
+  const x=(e.clientX-r.left)*canvas.width/r.width;
+  const y=(e.clientY-r.top)*canvas.height/r.height;
+
+  boxes = boxes.filter(b =>
+    !(x>b.x && x<b.x+b.w && y>b.y && y<b.y+b.h)
+  );
   redraw();
 });
 
 /* 清除 */
-clearBtn.onclick = ()=>{
-  points = [];
+clearBtn.onclick=()=>{
+  boxes=[];
   redraw();
 };
 
 /* 重繪 */
-function redraw() {
+function redraw(){
   ctx.drawImage(img,0,0);
+  boxes.forEach((b,i)=>{
+    ctx.strokeStyle="#22c55e";
+    ctx.lineWidth=3;
+    ctx.strokeRect(b.x,b.y,b.w,b.h);
 
-  points.forEach((p,i)=>{
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, 10, 0, Math.PI*2);
-    ctx.fillStyle = p.source==="AI" ? "#22c55e" : "#f97316";
-    ctx.fill();
-
-    ctx.fillStyle = "#fff";
-    ctx.font = "bold 14px sans-serif";
-    ctx.fillText(i+1, p.x+12, p.y+4);
+    ctx.fillStyle="#22c55e";
+    ctx.font="bold 22px sans-serif";
+    ctx.fillText(i+1,b.x+6,b.y+24);
   });
-
-  result.textContent = `🔢 目前箱子數量：${points.length}`;
+  result.textContent=`🔢 目前箱子數量：${boxes.length}`;
 }
 </script>
 
