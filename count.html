@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>手機拍照計數 Web App</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      padding: 16px;
+      background: #0f172a;
+      color: #e5e7eb;
+    }
+    h1 { font-size: 1.25rem; margin-bottom: 8px; }
+    p { color: #cbd5f5; }
+    .card {
+      background: #020617;
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+      margin-bottom: 16px;
+    }
+    input[type=file] {
+      width: 100%;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px dashed #334155;
+      background: #020617;
+      color: #e5e7eb;
+    }
+    button {
+      margin-top: 12px;
+      width: 100%;
+      padding: 12px 16px;
+      border-radius: 14px;
+      border: none;
+      background: #22c55e;
+      color: #052e16;
+      font-weight: 700;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    canvas { width: 100%; border-radius: 12px; margin-top: 12px; }
+    .result { font-size: 1.1rem; margin-top: 8px; }
+    .hint { font-size: .9rem; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <h1>📸 手機拍照計數（Web 版）</h1>
+  <p>不用安裝 App，直接用瀏覽器拍照數數量。</p>
+
+  <div class="card">
+    <!-- 相簿選擇 -->
+    <label style="display:block;margin-bottom:8px;">📁 從手機選擇照片</label>
+    <input id="filePicker" type="file" accept="image/*" />
+
+    <!-- 相機拍照（獨立 input，Android 最穩定） -->
+    <label style="display:block;margin:12px 0 8px;">📸 使用相機拍照</label>
+    <input id="cameraPicker" type="file" accept="image/*" capture="environment" />
+
+    <button id="countBtn" type="button">開始計數</button>
+    <div class="result" id="result">尚未計數</div>
+    <div class="hint">若無反應，請確認瀏覽器允許相機與網路</div>
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <!-- TensorFlow.js -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.21.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+
+  <script>
+    const filePicker = document.getElementById('filePicker');
+    const cameraPicker = document.getElementById('cameraPicker');
+    btn.disabled = false; // 手機瀏覽器不鎖按鈕，避免誤判
+    const btn = document.getElementById('countBtn');
+    const result = document.getElementById('result');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    let img = new Image();
+    let model = null;
+    let imageReady = false;
+
+    async function loadModel() {
+      try {
+        result.textContent = '模型載入中…（第一次約 5–10 秒）';
+        model = await cocoSsd.load();
+        result.textContent = '模型已就緒，請拍照';
+        toggleButton();
+      } catch (e) {
+        console.error(e);
+        result.textContent = '模型載入失敗，請確認網路連線';
+      }
+    }
+
+    // 載入 AI 模型（一定要成功才會有反應）
+    async function loadModel() {
+      result.textContent = 'AI 模型載入中…';
+      try {
+        model = await cocoSsd.load();
+        console.log('✅ model loaded', model);
+        result.textContent = '模型已就緒，請開始計數';
+      } catch (err) {
+        console.error('❌ model load failed', err);
+        alert('AI 模型載入失敗，請確認網路或改用 Chrome');
+      }
+    }
+    loadModel();
+
+    
+      input.setAttribute('accept', 'image/*');
+      input.setAttribute('capture', 'environment');
+      input.click();
+    });
+      input.click();
+    });
+
+    function handleFile(file) {
+      if (!file) return;
+      img = new Image();
+      img.onload = () => {
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        ctx.drawImage(img, 0, 0);
+        result.textContent = '照片已載入，可開始計數';
+      };
+      img.onerror = () => {
+        result.textContent = '圖片載入失敗';
+      };
+      img.src = URL.createObjectURL(file);
+    }
+
+    filePicker.addEventListener('change', () => handleFile(filePicker.files[0]));
+    cameraPicker.addEventListener('change', () => handleFile(cameraPicker.files[0]));
+      img.onload = async () => {
+        await img.decode?.();
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        ctx.drawImage(img, 0, 0);
+        imageReady = true;
+        toggleButton();
+        result.textContent = '照片已載入，準備計數';
+      };
+    });
+
+    function toggleButton() {
+      // 已棄用：手機瀏覽器狀態不可靠
+    }
+
+    btn.addEventListener('click', async () => {
+      console.log('▶ count clicked');
+
+      if (!img || !img.complete) {
+        alert('尚未載入照片');
+        return;
+      }
+      if (!model) {
+        alert('AI 模型尚未載入完成');
+        return;
+      }
+
+      result.textContent = '分析中…';
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+
+      try {
+        const predictions = await model.detect(canvas);
+        console.log('predictions', predictions);
+
+        predictions.forEach(p => {
+          const [x, y, w, h] = p.bbox;
+          ctx.strokeStyle = '#22c55e';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(x, y, w, h);
+        });
+
+        result.textContent = `偵測到 ${predictions.length} 個物件`;
+      } catch (err) {
+        console.error('❌ detect failed', err);
+        alert('辨識失敗，請開 console 查看錯誤');
+      }
+    });
+        result.textContent = `偵測到 ${predictions.length} 個物件`;
+      } catch (e) {
+        console.error(e);
+        alert('分析失敗，請開啟瀏覽器 console 查看錯誤');
+      }
+    });
+
+        result.textContent = `偵測到 ${predictions.length} 個物件`;
+      } catch (e) {
+        console.error(e);
+        result.textContent = '分析失敗，請換一張照片再試';
+      }
+    });
+
+        result.textContent = `偵測到 ${predictions.length} 個物件`;
+      } catch (e) {
+        console.error(e);
+        result.textContent = '分析失敗，請換一張照片再試';
+      }
+    });
+
+      result.textContent = `偵測到 ${predictions.length} 個物件`;
+    });
+  </script>
+</body>
+</html>
