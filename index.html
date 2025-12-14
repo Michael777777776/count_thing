@@ -1,57 +1,50 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>拍照計數工具</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>拍照計數工具</title>
 
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 
-  <style>
-    body {
-      font-family: system-ui, sans-serif;
-      background: #0f172a;
-      color: #e5e7eb;
-      text-align: center;
-      padding: 16px;
-      margin: 0;
-    }
+<style>
+body {
+  margin: 0;
+  padding: 16px;
+  background: #0f172a;
+  color: #e5e7eb;
+  font-family: system-ui, sans-serif;
+  text-align: center;
+}
 
-    h2 { margin-bottom: 10px; }
+h2 { margin-bottom: 10px; }
 
-    .btn {
-      padding: 12px 16px;
-      margin: 6px;
-      font-size: 16px;
-      font-weight: bold;
-      border-radius: 10px;
-      border: none;
-      cursor: pointer;
-    }
+button, select {
+  padding: 12px 16px;
+  margin: 6px;
+  font-size: 16px;
+  border-radius: 10px;
+  border: none;
+  font-weight: bold;
+}
 
-    .gallery { background: #38bdf8; color: #042f2e; }
-    .camera  { background: #facc15; color: #422006; }
-    .count   { background: #22c55e; color: #052e16; }
+.gallery { background:#38bdf8; }
+.camera  { background:#facc15; }
+.count   { background:#22c55e; }
+.adjust  { background:#334155; color:#fff; font-size:22px; width:56px; }
 
-    .adjust {
-      background: #334155;
-      color: #e5e7eb;
-      font-size: 22px;
-      width: 56px;
-    }
+canvas {
+  max-width: 100%;
+  margin-top: 14px;
+  border-radius: 12px;
+  background:#020617;
+}
 
-    canvas {
-      max-width: 100%;
-      margin-top: 14px;
-      border-radius: 12px;
-      background: #020617;
-    }
+#manual { margin-top: 10px; display:none; }
+#result { margin-top: 10px; }
 
-    #result { margin-top: 10px; font-size: 16px; }
-    #manual { margin-top: 10px; }
-
-  </style>
+</style>
 </head>
 
 <body>
@@ -59,20 +52,29 @@
 <h2>📸 拍照計數工具</h2>
 
 <div>
-  <button class="btn gallery" id="btnGallery">🖼 相簿</button>
-  <button class="btn camera" id="btnCamera">📸 相機</button>
+  <button class="gallery" id="btnGallery">🖼 相簿</button>
+  <button class="camera" id="btnCamera">📸 相機</button>
 </div>
 
 <div>
-  <button class="btn count" id="countBtn" disabled>▶ 開始計數</button>
+  <select id="classFilter">
+    <option value="all">🔎 所有物件</option>
+    <option value="person">👤 人</option>
+    <option value="chair">🪑 椅子</option>
+    <option value="bottle">🧴 瓶子</option>
+  </select>
+</div>
+
+<div>
+  <button class="count" id="countBtn" disabled>▶ 開始計數</button>
 </div>
 
 <div id="result">⏳ 初始化中…</div>
 
-<div id="manual" style="display:none;">
-  <button class="btn adjust" id="minusBtn">➖</button>
+<div id="manual">
+  <button class="adjust" id="minusBtn">➖</button>
   <span id="manualCount" style="font-size:18px;margin:0 10px;">0</span>
-  <button class="btn adjust" id="plusBtn">➕</button>
+  <button class="adjust" id="plusBtn">➕</button>
 </div>
 
 <canvas id="canvas"></canvas>
@@ -84,34 +86,33 @@
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 const result = document.getElementById("result");
-const countBtn = document.getElementById("countBtn");
 const manualDiv = document.getElementById("manual");
 const manualCountText = document.getElementById("manualCount");
 
 let img = new Image();
 let model;
-let aiCount = 0;
+let detections = [];
 let manualCount = 0;
 
 /* 初始化 AI */
-async function initAI() {
+async function init() {
   await tf.ready();
   await tf.setBackend("webgl");
   model = await cocoSsd.load();
   result.textContent = "✅ 模型就緒，請選擇照片";
   countBtn.disabled = false;
 }
-window.onload = initAI;
+window.onload = init;
 
-/* 圖片載入 */
+/* 載入圖片 */
 function loadImage(file) {
   const reader = new FileReader();
   reader.onload = () => {
     img.onload = () => {
       canvas.width = img.width;
       canvas.height = img.height;
-      ctx.drawImage(img, 0, 0);
-      result.textContent = "📷 圖片已載入";
+      ctx.drawImage(img,0,0);
+      detections = [];
       manualDiv.style.display = "none";
     };
     img.src = reader.result;
@@ -119,53 +120,71 @@ function loadImage(file) {
   reader.readAsDataURL(file);
 }
 
+btnGallery.onclick = ()=>fileInput.click();
+btnCamera.onclick = ()=>cameraInput.click();
 fileInput.onchange = e => loadImage(e.target.files[0]);
 cameraInput.onchange = e => loadImage(e.target.files[0]);
 
-btnGallery.onclick = () => fileInput.click();
-btnCamera.onclick = () => cameraInput.click();
-
 /* 開始計數 */
 countBtn.onclick = async () => {
-  ctx.drawImage(img, 0, 0);
-  result.textContent = "🔍 分析中…";
+  ctx.drawImage(img,0,0);
+  const selected = classFilter.value;
 
-  const predictions = await model.detect(img);
-  aiCount = predictions.length;
-  manualCount = aiCount;
+  const preds = await model.detect(img);
+  detections = preds.filter(p =>
+    selected === "all" || p.class === selected
+  );
+
+  manualCount = detections.length;
   manualCountText.textContent = manualCount;
   manualDiv.style.display = "block";
+  redraw();
+};
 
-  predictions.forEach((p, i) => {
-    const [x, y, w, h] = p.bbox;
+/* 重繪畫面 */
+function redraw() {
+  ctx.drawImage(img,0,0);
 
-    ctx.strokeStyle = "#22c55e";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(x, y, w, h);
+  detections.forEach((p,i)=>{
+    const [x,y,w,h] = p.bbox;
 
-    ctx.fillStyle = "#22c55e";
-    ctx.font = "bold 28px sans-serif";
-    ctx.fillText(`#${i + 1}`, x + 4, y + 28);
+    ctx.strokeStyle="#22c55e";
+    ctx.lineWidth=3;
+    ctx.strokeRect(x,y,w,h);
+
+    ctx.fillStyle="#22c55e";
+    ctx.font="bold 26px sans-serif";
+    ctx.fillText(`#${i+1}`, x+4, y+26);
   });
 
-  updateResult();
-};
-
-/* 手動修正 */
-plusBtn.onclick = () => {
-  manualCount++;
-  updateResult();
-};
-
-minusBtn.onclick = () => {
-  if (manualCount > 0) manualCount--;
-  updateResult();
-};
-
-function updateResult() {
-  manualCountText.textContent = manualCount;
-  result.textContent = `🤖 AI 偵測：${aiCount} ｜ ✍️ 修正後：${manualCount}`;
+  result.textContent = `🤖 偵測物件：${detections.length}`;
+  manualCountText.textContent = detections.length;
 }
+
+/* 點擊刪除框框 */
+canvas.addEventListener("click", e => {
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.clientX - rect.left) * canvas.width / rect.width;
+  const y = (e.clientY - rect.top) * canvas.height / rect.height;
+
+  detections = detections.filter(p=>{
+    const [bx,by,bw,bh] = p.bbox;
+    return !(x>bx && x<bx+bw && y>by && y<by+bh);
+  });
+
+  redraw();
+});
+
+/* 手動微調 */
+plusBtn.onclick = ()=>{
+  manualCount++;
+  manualCountText.textContent = manualCount;
+};
+
+minusBtn.onclick = ()=>{
+  if(manualCount>0) manualCount--;
+  manualCountText.textContent = manualCount;
+};
 </script>
 
 </body>
