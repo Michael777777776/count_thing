@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>拍照計數工具</title>
 
+  <!-- TensorFlow.js -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+  <!-- COCO-SSD -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 
   <style>
@@ -18,26 +20,50 @@
       padding: 16px;
       text-align: center;
     }
-    button, input {
+
+    h2 {
+      margin-bottom: 12px;
+    }
+
+    .btn {
       margin: 6px;
-      padding: 10px 14px;
+      padding: 12px 16px;
       font-size: 16px;
-      border-radius: 8px;
+      border-radius: 10px;
       border: none;
-    }
-    button {
-      background: #22c55e;
       font-weight: bold;
+      cursor: pointer;
     }
-    button:disabled {
+
+    .btn-gallery {
+      background: #38bdf8;
+      color: #042f2e;
+    }
+
+    .btn-camera {
+      background: #facc15;
+      color: #422006;
+    }
+
+    .btn-count {
+      background: #22c55e;
+      color: #052e16;
+      margin-top: 10px;
+    }
+
+    .btn:disabled {
       background: #475569;
+      color: #cbd5f5;
+      cursor: not-allowed;
     }
+
     canvas {
       max-width: 100%;
-      margin-top: 12px;
+      margin-top: 14px;
       border-radius: 12px;
       background: #020617;
     }
+
     #result {
       margin-top: 10px;
       font-size: 16px;
@@ -46,24 +72,36 @@
 </head>
 
 <body>
+
   <h2>📸 拍照計數工具</h2>
 
-  <input type="file" accept="image/*" id="fileInput">
-  <input type="file" accept="image/*" capture="environment" id="cameraInput">
+  <!-- 自訂操作按鈕 -->
+  <div>
+    <button class="btn btn-gallery" id="btnGallery">🖼 選擇相簿照片</button>
+    <button class="btn btn-camera" id="btnCamera">📸 使用相機拍照</button>
+  </div>
 
-  <br>
-  <button id="countBtn" disabled>▶ 開始計數</button>
+  <div>
+    <button class="btn btn-count" id="countBtn" disabled>▶ 開始計數</button>
+  </div>
 
-  <div id="result">初始化中…</div>
+  <div id="result">⏳ 初始化中…</div>
+
   <canvas id="canvas"></canvas>
 
+  <!-- 真正的 file input（隱藏） -->
+  <input type="file" accept="image/*" id="fileInput" hidden>
+  <input type="file" accept="image/*" capture="environment" id="cameraInput" hidden>
+
 <script>
-const fileInput = document.getElementById("fileInput");
-const cameraInput = document.getElementById("cameraInput");
-const btn = document.getElementById("countBtn");
-const result = document.getElementById("result");
-const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
+const btnGallery = document.getElementById("btnGallery");
+const btnCamera  = document.getElementById("btnCamera");
+const countBtn   = document.getElementById("countBtn");
+const fileInput  = document.getElementById("fileInput");
+const cameraInput= document.getElementById("cameraInput");
+const result     = document.getElementById("result");
+const canvas     = document.getElementById("canvas");
+const ctx        = canvas.getContext("2d");
 
 let img = new Image();
 let model = null;
@@ -80,15 +118,19 @@ async function initAI() {
     result.textContent = "⏳ 載入 AI 模型…";
     model = await cocoSsd.load();
 
-    result.textContent = "✅ 模型已就緒，請載入圖片";
-    btn.disabled = false;
+    result.textContent = "✅ 模型已就緒，請選擇照片";
+    countBtn.disabled = false;
   } catch (e) {
     console.error(e);
-    alert("AI 初始化失敗");
+    alert("❌ AI 初始化失敗，請重新整理頁面");
   }
 }
 
 window.addEventListener("load", initAI);
+
+/* ===== 自訂按鈕行為 ===== */
+btnGallery.onclick = () => fileInput.click();
+btnCamera.onclick  = () => cameraInput.click();
 
 /* ===== 載入圖片 ===== */
 function loadImage(file) {
@@ -108,12 +150,10 @@ function loadImage(file) {
 fileInput.onchange = e => e.target.files[0] && loadImage(e.target.files[0]);
 cameraInput.onchange = e => e.target.files[0] && loadImage(e.target.files[0]);
 
-/* ===== 開始計數（一定有反應）===== */
-btn.onclick = async () => {
-  alert("▶ 已點擊開始計數");   // ← 強制可視回饋
-
+/* ===== 開始計數 ===== */
+countBtn.onclick = async () => {
   if (!model) {
-    alert("模型尚未就緒");
+    alert("AI 尚未就緒");
     return;
   }
 
@@ -122,8 +162,7 @@ btn.onclick = async () => {
     return;
   }
 
-  result.textContent = "🔍 AI 分析中…（請稍候）";
-
+  result.textContent = "🔍 分析中…請稍候";
   ctx.drawImage(img, 0, 0);
 
   try {
@@ -141,9 +180,10 @@ btn.onclick = async () => {
     result.textContent = `🎯 偵測到 ${count} 個物件`;
   } catch (e) {
     console.error(e);
-    alert("detect 發生錯誤");
+    alert("辨識過程發生錯誤");
   }
 };
 </script>
+
 </body>
 </html>
