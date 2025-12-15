@@ -318,20 +318,20 @@ function redraw() {
   if (img.src) ctx.drawImage(img, 0, 0);
 
   points.forEach((p, i) => {
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, POINT_RADIUS, 0, Math.PI * 2);
     ctx.fillStyle = p.source === "AI" ? "#22c55e" : "#f97316";
-    ctx.fill();
+    ctx.font = "bold 18px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
 
-    ctx.fillStyle = "#fff";
-    ctx.font = "16px sans-serif";
-    ctx.fillText(i + 1, p.x + POINT_RADIUS + 6, p.y + 6);
+    ctx.fillText(i + 1, p.x, p.y);
   });
 
   result.textContent = `🔢 總數：${points.length}`;
 }
+
 </script>
 
 </body>
 </html>
+
 
