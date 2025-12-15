@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI + 手動補點計數</title>
+<title>📦 AI + 手動補點計數</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
@@ -73,12 +73,13 @@ canvas {
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 const result = document.getElementById("result");
+const aiBtn = document.getElementById("aiBtn");
 
 let img = new Image();
 let model;
-let points = [];   // 🔴 所有計數點（AI + 人）
+let points = [];   // {x, y, source: "AI" | "MANUAL"}
 
-/* 初始化 */
+/* ================= 初始化 ================= */
 async function init() {
   await tf.ready();
   await tf.setBackend("webgl");
@@ -88,8 +89,10 @@ async function init() {
 }
 window.onload = init;
 
-/* 載入圖片 */
+/* ================= 載入圖片 ================= */
 function loadImage(file) {
+  if (!file) return;
+
   const reader = new FileReader();
   reader.onload = () => {
     img.onload = () => {
@@ -103,74 +106,95 @@ function loadImage(file) {
   reader.readAsDataURL(file);
 }
 
-btnGallery.onclick = ()=>fileInput.click();
-btnCamera.onclick = ()=>cameraInput.click();
+btnGallery.onclick = () => fileInput.click();
+btnCamera.onclick = () => cameraInput.click();
 fileInput.onchange = e => loadImage(e.target.files[0]);
 cameraInput.onchange = e => loadImage(e.target.files[0]);
 
-/* AI 初步偵測（只取中心點） */
+/* ================= AI 偵測 ================= */
 aiBtn.onclick = async () => {
+  if (!model || !img.src) return;
+
+  // ⭐ 保留人工點，清除舊 AI 點
+  points = points.filter(p => p.source === "MANUAL");
+
   const preds = await model.detect(img);
 
   preds.forEach(p => {
-    const [x,y,w,h] = p.bbox;
+    const [x, y, w, h] = p.bbox;
 
-    // ⭐ 只留下「像箱子大小」的區塊
+    // 基本尺寸過濾（像箱子）
     if (w > 60 && h > 60) {
-      points.push({
-        x: x + w/2,
-        y: y + h/2,
-        source: "AI"
-      });
+      const cx = x + w / 2;
+      const cy = y + h / 2;
+
+      // ⭐ 距離去重（避免同一箱多算）
+      if (!isNear(cx, cy)) {
+        points.push({ x: cx, y: cy, source: "AI" });
+      }
     }
   });
 
   redraw();
 };
 
-/* 手動補點 / 點擊刪除 */
+/* ================= 點擊新增 / 刪除 ================= */
 canvas.addEventListener("click", e => {
+  if (!img.src) return;
+
   const rect = canvas.getBoundingClientRect();
   const x = (e.clientX - rect.left) * canvas.width / rect.width;
   const y = (e.clientY - rect.top) * canvas.height / rect.height;
 
-  // 如果點到既有點 → 刪除
+  // 點到既有點 → 刪除
   const idx = points.findIndex(p =>
     Math.hypot(p.x - x, p.y - y) < 18
   );
 
   if (idx >= 0) {
-    points.splice(idx,1);
+    points.splice(idx, 1);
   } else {
-    // 否則新增一點
-    points.push({ x, y, source:"MANUAL" });
+    // 新增人工點
+    points.push({ x, y, source: "MANUAL" });
   }
 
   redraw();
 });
 
-/* 清除 */
-clearBtn.onclick = ()=>{
+/* ================= 清除 ================= */
+clearBtn.onclick = () => {
   points = [];
   redraw();
 };
 
-/* 重繪 */
-function redraw() {
-  ctx.drawImage(img,0,0);
+/* ================= 工具 ================= */
+function isNear(x, y) {
+  return points.some(p =>
+    Math.hypot(p.x - x, p.y - y) < 40
+  );
+}
 
-  points.forEach((p,i)=>{
+/* ================= 重繪 ================= */
+function redraw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0);
+
+  points.forEach((p, i) => {
     ctx.beginPath();
-    ctx.arc(p.x, p.y, 10, 0, Math.PI*2);
-    ctx.fillStyle = p.source==="AI" ? "#22c55e" : "#f97316";
+    ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+    ctx.fillStyle = p.source === "AI" ? "#22c55e" : "#f97316";
     ctx.fill();
 
-    ctx.fillStyle = "#fff";
+    ctx.fillStyle = "#ffffff";
     ctx.font = "bold 14px sans-serif";
-    ctx.fillText(i+1, p.x+12, p.y+4);
+    ctx.fillText(i + 1, p.x + 12, p.y + 4);
   });
 
-  result.textContent = `🔢 目前箱子數量：${points.length}`;
+  const aiCount = points.filter(p => p.source === "AI").length;
+  const manualCount = points.length - aiCount;
+
+  result.textContent =
+    `🔢 總數：${points.length}（AI ${aiCount} + 手動 ${manualCount}）`;
 }
 </script>
 
