@@ -9,6 +9,22 @@
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 
 <style>
+
+details {
+  margin: 10px 0;
+}
+
+summary {
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 16px;
+  padding: 6px 4px;
+}
+
+summary::marker {
+  color: #38bdf8;
+}
+  
 body {
   margin: 0;
   padding: 16px;
@@ -46,12 +62,76 @@ canvas {
   margin-top: 10px;
   font-size: 18px;
 }
+
+fieldset {
+  border: 1px solid #334155;
+  border-radius: 12px;
+  margin: 10px 0;
+  padding: 10px;
+  text-align: left;
+}
+
+legend {
+  padding: 0 6px;
+  font-weight: bold;
+}
+label {
+  display: inline-block;
+  margin: 4px 8px;
+  font-size: 14px;
+}
 </style>
 </head>
 
 <body>
 
 <h2>📦 AI + 手動補點計數</h2>
+
+<!-- ===== 類型選單（可收合） ===== -->
+
+<details>
+  <summary>👤 人與動物</summary>
+  <fieldset>
+    <label><input type="checkbox" value="person"> person</label>
+    <label><input type="checkbox" value="dog"> dog</label>
+    <label><input type="checkbox" value="cat"> cat</label>
+    <label><input type="checkbox" value="horse"> horse</label>
+    <label><input type="checkbox" value="cow"> cow</label>
+    <label><input type="checkbox" value="sheep"> sheep</label>
+  </fieldset>
+</details>
+
+<details open>
+  <summary>🚗 交通工具（預設）</summary>
+  <fieldset>
+    <label><input type="checkbox" value="car" checked> car</label>
+    <label><input type="checkbox" value="truck" checked> truck</label>
+    <label><input type="checkbox" value="bus" checked> bus</label>
+    <label><input type="checkbox" value="motorcycle" checked> motorcycle</label>
+    <label><input type="checkbox" value="bicycle" checked> bicycle</label>
+  </fieldset>
+</details>
+
+<details>
+  <summary>👜 隨身物品</summary>
+  <fieldset>
+    <label><input type="checkbox" value="backpack"> backpack</label>
+    <label><input type="checkbox" value="handbag"> handbag</label>
+    <label><input type="checkbox" value="suitcase"> suitcase</label>
+  </fieldset>
+</details>
+
+<details>
+  <summary>🍽 生活用品</summary>
+  <fieldset>
+    <label><input type="checkbox" value="chair"> chair</label>
+    <label><input type="checkbox" value="dining table"> table</label>
+    <label><input type="checkbox" value="tv"> tv</label>
+    <label><input type="checkbox" value="laptop"> laptop</label>
+    <label><input type="checkbox" value="cell phone"> phone</label>
+  </fieldset>
+</details>
+
 
 <div>
   <button class="gallery" id="btnGallery">🖼 相簿</button>
@@ -65,7 +145,6 @@ canvas {
 </div>
 
 <div id="result">⏳ 載入模型中…</div>
-
 <canvas id="canvas"></canvas>
 
 <input type="file" accept="image/*" hidden id="fileInput">
@@ -79,9 +158,18 @@ const aiBtn = document.getElementById("aiBtn");
 
 let img = new Image();
 let model;
-let points = []; // {x, y, source}
+let points = [];
+const CLUSTER_DISTANCE = 80;
 
-/* ================= 初始化 ================= */
+/* 取得勾選類型 */
+function getSelectedClasses() {
+  return new Set(
+    [...document.querySelectorAll("input[type=checkbox]:checked")]
+      .map(cb => cb.value)
+  );
+}
+
+/* 初始化 */
 async function init() {
   await tf.ready();
   await tf.setBackend("webgl");
@@ -91,7 +179,7 @@ async function init() {
 }
 window.onload = init;
 
-/* ================= 載入圖片 ================= */
+/* 載入圖片 */
 function loadImage(file) {
   if (!file) return;
   const reader = new FileReader();
@@ -112,99 +200,89 @@ btnCamera.onclick = () => cameraInput.click();
 fileInput.onchange = e => loadImage(e.target.files[0]);
 cameraInput.onchange = e => loadImage(e.target.files[0]);
 
-/* ================= AI 偵測 ================= */
+/* AI 偵測 */
 aiBtn.onclick = async () => {
-  if (!model || !img.src) return;
+  if (!img.src) return;
 
-  points = points.filter(p => p.source === "MANUAL");
-
+  const selected = getSelectedClasses();
+  const manual = points.filter(p => p.source === "MANUAL");
   const preds = await model.detect(img);
 
+  const raw = [];
   preds.forEach(p => {
+    if (!selected.has(p.class)) return;
+
     const [x, y, w, h] = p.bbox;
     if (w > 60 && h > 60) {
-      const cx = x + w / 2;
-      const cy = y + h / 2;
-      if (!isNear(cx, cy)) {
-        points.push({ x: cx, y: cy, source: "AI" });
-      }
+      raw.push({ x: x + w / 2, y: y + h / 2 });
     }
   });
 
+  const clustered = clusterPoints(raw, CLUSTER_DISTANCE);
+  points = [...manual, ...clustered.map(p => ({ ...p, source: "AI" }))];
   redraw();
 };
 
-/* ================= 點擊新增 / 刪除 ================= */
-canvas.addEventListener("click", e => {
-  if (!img.src) return;
+/* 分群 */
+function clusterPoints(raw, dist) {
+  const clusters = [];
+  raw.forEach(pt => {
+    let found = false;
+    for (const c of clusters) {
+      if (Math.hypot(c.x - pt.x, c.y - pt.y) < dist) {
+        c.x = (c.x * c.count + pt.x) / (c.count + 1);
+        c.y = (c.y * c.count + pt.y) / (c.count + 1);
+        c.count++;
+        found = true;
+        break;
+      }
+    }
+    if (!found) clusters.push({ x: pt.x, y: pt.y, count: 1 });
+  });
+  return clusters;
+}
 
-  const rect = canvas.getBoundingClientRect();
-  const x = (e.clientX - rect.left) * canvas.width / rect.width;
-  const y = (e.clientY - rect.top) * canvas.height / rect.height;
+/* 點擊新增 / 刪除 */
+canvas.onclick = e => {
+  const r = canvas.getBoundingClientRect();
+  const x = (e.clientX - r.left) * canvas.width / r.width;
+  const y = (e.clientY - r.top) * canvas.height / r.height;
 
-  const idx = points.findIndex(p =>
-    Math.hypot(p.x - x, p.y - y) < 18
-  );
+  const i = points.findIndex(p => Math.hypot(p.x - x, p.y - y) < 18);
+  if (i >= 0) points.splice(i, 1);
+  else points.push({ x, y, source: "MANUAL" });
 
-  if (idx >= 0) {
-    points.splice(idx, 1);
-  } else {
-    points.push({ x, y, source: "MANUAL" });
-  }
-
-  redraw();
-});
-
-/* ================= 清除 ================= */
-clearBtn.onclick = () => {
-  points = [];
   redraw();
 };
 
-/* ================= 匯出 ================= */
+/* 清除 */
+clearBtn.onclick = () => { points = []; redraw(); };
+
+/* 匯出 */
 exportBtn.onclick = () => {
-  if (!img.src) return alert("請先載入圖片");
-
-  const aiCount = points.filter(p => p.source === "AI").length;
-  const manualCount = points.length - aiCount;
-
   const link = document.createElement("a");
-  link.download = `count_${points.length}_AI${aiCount}_MANUAL${manualCount}.png`;
-  link.href = canvas.toDataURL("image/png");
+  link.download = `count_${points.length}.png`;
+  link.href = canvas.toDataURL();
   link.click();
 };
 
-/* ================= 工具 ================= */
-function isNear(x, y) {
-  return points.some(p =>
-    Math.hypot(p.x - x, p.y - y) < 40
-  );
-}
-
-/* ================= 重繪 ================= */
+/* 重繪 */
 function redraw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(img, 0, 0);
-
-  points.forEach((p, i) => {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(img,0,0);
+  points.forEach((p,i)=>{
     ctx.beginPath();
-    ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
-    ctx.fillStyle = p.source === "AI" ? "#22c55e" : "#f97316";
+    ctx.arc(p.x,p.y,10,0,Math.PI*2);
+    ctx.fillStyle = p.source==="AI"?"#22c55e":"#f97316";
     ctx.fill();
-
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 14px sans-serif";
-    ctx.fillText(i + 1, p.x + 12, p.y + 4);
+    ctx.fillStyle="#fff";
+    ctx.fillText(i+1,p.x+12,p.y+4);
   });
-
-  const aiCount = points.filter(p => p.source === "AI").length;
-  const manualCount = points.length - aiCount;
-
-  result.textContent =
-    `🔢 總數：${points.length}（AI ${aiCount} + 手動 ${manualCount}）`;
+  result.textContent = `🔢 總數：${points.length}`;
 }
 </script>
 
 </body>
 </html>
+
 
